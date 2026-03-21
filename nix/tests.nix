@@ -1,4 +1,138 @@
-pkgs: {
+pkgs:
+let
+  # With-deps: jfmt has a lockfile with real Janet deps
+  jfmt = pkgs.mkJanet {
+    name = "jfmt";
+    src = builtins.fetchGit {
+      url = "https://github.com/andrewchambers/jfmt.git";
+      rev = "b27dff6bb32b89b20462eec33f50c1583c301b0a";
+    };
+    bin = "jfmt";
+  };
+
+  # With-deps and quickbin.
+  jfmt-quickbin = pkgs.mkJanet {
+    name = "jfmt";
+    src = builtins.fetchGit {
+      url = "https://github.com/andrewchambers/jfmt.git";
+      rev = "b27dff6bb32b89b20462eec33f50c1583c301b0a";
+    };
+    quickbin = "./jfmt.janet";
+  };
+in
+{
+  # Verify jfmt builds and produces an executable binary
+  jfmt-with-deps = pkgs.runCommand "jfmt-with-deps-check" { } ''
+    [ -x "${jfmt}/bin/jfmt" ] || (echo "jfmt binary not found or not executable"; exit 1)
+    touch $out
+  '';
+
+  # Verify jfmt builds and produces an executable binary
+  jfmt-quickbin = pkgs.runCommand "jfmt-quickbin" { } ''
+    [ -x "${jfmt-quickbin}/bin/jfmt" ] || (echo "jfmt binary not found or not executable"; exit 1)
+    touch $out
+  '';
+
+  quickbin =
+    let
+      src = pkgs.writeTextDir "src/test.janet" ''
+        (defn main [& args] (print "quickbin"))
+      '';
+      pkg = pkgs.mkJanet {
+        inherit src;
+        name = "test";
+        quickbin = "src/test.janet";
+      };
+    in
+    pkgs.runCommand "quickbin" { } ''
+      output=$(${pkg}/bin/test)
+      [ "$output" = "quickbin" ] || (echo "Unexpected output: $output"; exit 1)
+      touch $out
+    '';
+
+  quickbin-local-import =
+    let
+      src = pkgs.symlinkJoin {
+        name = "src";
+        paths = [
+          (pkgs.writeTextDir "src/helper.janet" ''
+            (defn greeting [] "quickbin-local-import")
+          '')
+          (pkgs.writeTextDir "src/main.janet" ''
+            (import ./helper)
+            (defn main [& args] (print (helper/greeting)))
+          '')
+        ];
+      };
+      pkg = pkgs.mkJanet {
+        inherit src;
+        name = "test";
+        quickbin = "src/main.janet";
+      };
+    in
+    pkgs.runCommand "quickbin-local-import" { } ''
+      output=$(${pkg}/bin/test)
+      [ "$output" = "quickbin-local-import" ] || (echo "Unexpected output: $output"; exit 1)
+      touch $out
+    '';
+
+  executable-bin =
+    let
+      src = pkgs.symlinkJoin {
+        name = "src";
+        paths = [
+          (pkgs.writeTextDir "project.janet" ''
+            (declare-project :name "myproj")
+            (declare-executable :name "test" :entry "src/main.janet" :install true)
+          '')
+          (pkgs.writeTextDir "src/main.janet" ''
+            (defn main [& args] (print "executable-bin"))
+          '')
+        ];
+      };
+      pkg = pkgs.mkJanet {
+        inherit src;
+        name = "test";
+        bin = "test";
+      };
+    in
+    pkgs.runCommand "executable-bin" { } ''
+      output=$(${pkg}/bin/test)
+      [ "$output" = "executable-bin" ] || (echo "Unexpected output: $output"; exit 1)
+      touch $out
+    '';
+
+  executable-local-import =
+    let
+      src = pkgs.symlinkJoin {
+        name = "src";
+        paths = [
+          (pkgs.writeTextDir "project.janet" ''
+            (declare-project :name "myproj")
+            (declare-source :source [ "src/helper.janet" ])
+            (declare-executable :name "test" :entry "src/main.janet" :install true)
+          '')
+          (pkgs.writeTextDir "src/helper.janet" ''
+            (defn greeting [] "executable-local-import")
+          '')
+          (pkgs.writeTextDir "src/main.janet" ''
+            (import ./helper)
+            (defn main [& args] (print (helper/greeting)))
+          '')
+        ];
+      };
+      pkg = pkgs.mkJanet {
+        inherit src;
+        name = "test";
+        bin = "test";
+      };
+    in
+    pkgs.runCommand "project-bin" { } ''
+      output=$(${pkg}/bin/test)
+      [ "$output" = "executable-local-import" ] || (echo "Unexpected output: $output"; exit 1)
+      touch $out
+    '';
+
   binscript-bin =
     let
       src = pkgs.symlinkJoin {
