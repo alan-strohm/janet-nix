@@ -162,4 +162,36 @@ pkgs: {
       [ "$output" = "Hello, world!" ] || (echo "Unexpected output: $output"; exit 1)
       touch $out
     '';
+
+  # Verify extraSources dep is available at build time
+  extra-sources =
+    let
+      # extra: a pre-fetched source tree (e.g. a flake input) passed directly
+      extra = pkgs.symlinkJoin {
+        name = "src";
+        paths = [
+          (pkgs.writeTextDir "project.janet" ''
+            (declare-project :name "greetlib")
+            (declare-source :source ["greetlib.janet"])
+          '')
+          (pkgs.writeTextDir "greetlib.janet" ''
+            (defn greet [] "extra-sources")
+          '')
+        ];
+      };
+      pkg = pkgs.mkJanet {
+        name = "extra-sources";
+        src = pkgs.writeTextDir "main.janet" ''
+          (import greetlib)
+          (defn main [& args] (print (greetlib/greet)))
+        '';
+        quickbin = "main.janet";
+        extraSources = [ extra ];
+      };
+    in
+    pkgs.runCommand "extra-sources-check" { } ''
+      output=$(${pkg}/bin/extra-sources)
+      [ "$output" = "extra-sources" ] || (echo "Unexpected output: $output"; exit 1)
+      touch $out
+    '';
 }

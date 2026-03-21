@@ -44,7 +44,7 @@
           };
 
         mkJanet = { name, src, main ? null, quickbin ? null, version ? null
-          , bin ? null, buildInputs ? [ ], extraDeps ? [ ], runtimeInputs ? [ ] }:
+          , bin ? null, buildInputs ? [ ], extraDeps ? [ ], extraSources ? [ ], runtimeInputs ? [ ] }:
           with final;
           let
             deps = (import (pkgs.runCommandLocal "run-janet-nix" {
@@ -58,7 +58,7 @@
                 echo "[]" > $out
               fi
             ''));
-            sources = (builtins.map builtins.fetchGit (deps ++ extraDeps));
+            sources = (builtins.map builtins.fetchGit (deps ++ extraDeps)) ++ extraSources;
             runtimePath = lib.makeBinPath runtimeInputs;
             runtimePathFlag = lib.optionalString (runtimeInputs != [])
               ''--prefix PATH : "${runtimePath}"'';

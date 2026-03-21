@@ -44,7 +44,8 @@ nix run .
 - `src` source path or repo, passed to `mkDerivation`
 - `version` passed to `mkDerivation`
 - `buildInputs` additional nix packages
-- `extraDeps` additional Janet sources, see [Tips](#tips)
+- `extraDeps` additional Janet sources, see [Tips](#tips). The format of each entry is the attrset expected by `builtins.fetchGit`
+- `extraSources` additional Janet sources. The format of each entry is a directory path containing a janet project.
 - `runtimeInputs` packages that need to be available on the path at runtime (e.g. if the janet script calls shell commands).
 - `quickbin` an entry point for `jpm quickbin`
 - `main` specify Janet code to use as the entry point to `jpm quickbin`
