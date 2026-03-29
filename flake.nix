@@ -11,59 +11,15 @@
           inherit system;
           overlays = [ self.overlay ];
         });
-    in {
-      overlay = final: prev: {
-        janet-nix = with final;
-          stdenv.mkDerivation {
-            name = "janet-nix";
-
-            buildInputs = [ janet jpm ];
-
-            src = ./.;
-
-            buildPhase = ''
-              # localize jpm dependency paths
-              export JANET_PATH="$PWD/.jpm"
-              export JANET_TREE="$JANET_PATH/jpm_tree"
-              export JANET_LIBPATH="${pkgs.janet}/lib"
-              export JANET_HEADERPATH="${pkgs.janet}/include/janet"
-              export JANET_BUILDPATH="$JANET_PATH/build"
-              export PATH="$PATH:$JANET_TREE/bin"
-              mkdir -p "$JANET_TREE"
-              mkdir -p "$JANET_BUILDPATH"
-
-              jpm build
-              jpm quickbin main.janet quickbin-out
-            '';
-
-            installPhase = ''
-              mkdir -p $out/bin
-              mv quickbin-out $out/bin/$name
-              chmod +x $out/bin/$name
-            '';
-          };
-
-        mkJanet = { name, src, main ? null, quickbin ? null, version ? null
-          , bin ? null, buildInputs ? [ ], extraDeps ? [ ], extraSources ? [ ], runtimeInputs ? [ ] }:
-          with final;
+      mkJanetInternal = { pkgs, name, src, main ? null, quickbin ? null, version ? null
+        , bin ? null, buildInputs ? [ ], runtimeInputs ? [ ], jpmTree ? "" }:
+          with pkgs;
           let
-            deps = (import (pkgs.runCommandLocal "run-janet-nix" {
-              inherit src;
-              buildInputs = [ janet-nix ];
-            } ''
-              if [ -f "$src/lockfile.jdn" ]; then
-                cp $src/lockfile.jdn .
-                janet-nix > $out
-              else
-                echo "[]" > $out
-              fi
-            ''));
-            sources = (builtins.map builtins.fetchGit (deps ++ extraDeps)) ++ extraSources;
             runtimePath = lib.makeBinPath runtimeInputs;
             runtimePathFlag = lib.optionalString (runtimeInputs != [])
               ''--prefix PATH : "${runtimePath}"'';
           in stdenv.mkDerivation {
-            inherit name version src main quickbin bin sources;
+            inherit name version src main quickbin bin;
 
             nativeBuildInputs = [ makeWrapper ];
             buildInputs = [ janet jpm ] ++ buildInputs;
@@ -80,18 +36,10 @@
               mkdir -p "$JANET_BUILDPATH"
               mkdir -p "$PWD/.pkgs"
 
-              # fetch packages from the lockfile, mount repos
-              for source in $sources; do
-                cp -r "$source" "$PWD/.pkgs"
-              done
-              chmod +w -R "$PWD/.pkgs"
-
-              # install each package
-              for source in "$PWD/.pkgs/"*; do
-                pushd "$source"
-                jpm install
-                popd
-              done
+              if [ -n "${jpmTree}" ]; then
+                cp -r ${jpmTree}/. "$JANET_TREE"
+                chmod -R u+w "$JANET_TREE"
+              fi
 
               # if passed a main script, copy it into the project and use it for quickbin
               if [ -n "$main" ]; then
@@ -102,7 +50,6 @@
               if [ -n "$quickbin" ]; then
                 jpm quickbin "$quickbin" quickbin-out
               else
-                jpm build
                 jpm install
               fi
             '';
@@ -140,6 +87,40 @@
                 fi
               done
             '';
+          };
+    in {
+      overlay = final: prev: {
+        janet-nix = final.mkJanet {
+          name = "janet-nix";
+          src = ./.;
+          quickbin = "main.janet";
+        };
+
+        mkJanet = { name, src, main ? null, quickbin ? null, version ? null
+          , bin ? null, buildInputs ? [ ], extraDeps ? [ ], extraSources ? [ ], runtimeInputs ? [ ] }:
+          let
+            pkgs = final;
+            deps = if builtins.pathExists (src + "/lockfile.jdn")
+              then import (pkgs.runCommandLocal "run-janet-nix" {
+                lockfile = src + "/lockfile.jdn";
+                buildInputs = [ pkgs.janet-nix ];
+              } ''
+                cp "$lockfile" lockfile.jdn
+                janet-nix > $out
+              '')
+              else [];
+            sources = (builtins.map builtins.fetchGit (deps ++ extraDeps)) ++ extraSources;
+            perDepDrvs = map (src: mkJanetInternal {
+              inherit pkgs src buildInputs;
+              name = "janet-dep-${builtins.baseNameOf (toString src)}";
+            }) sources;
+            jpmTree = pkgs.symlinkJoin {
+              name = "jpm_tree";
+              paths = perDepDrvs;
+            };
+          in
+          mkJanetInternal {
+            inherit pkgs name src main quickbin version bin buildInputs runtimeInputs jpmTree;
           };
       };
 
