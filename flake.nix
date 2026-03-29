@@ -44,7 +44,7 @@
           };
 
         mkJanet = { name, src, main ? null, quickbin ? null, version ? null
-          , bin ? null, buildInputs ? [ ], extraDeps ? [ ] }:
+          , bin ? null, buildInputs ? [ ], extraDeps ? [ ], runtimeInputs ? [ ] }:
           with final;
           let
             deps = (import (pkgs.runCommandLocal "run-janet-nix" {
@@ -59,6 +59,9 @@
               fi
             ''));
             sources = (builtins.map builtins.fetchGit (deps ++ extraDeps));
+            runtimePath = lib.makeBinPath runtimeInputs;
+            runtimePathFlag = lib.optionalString (runtimeInputs != [])
+              ''--prefix PATH : "${runtimePath}"'';
           in stdenv.mkDerivation {
             inherit name version src main quickbin bin sources;
 
@@ -111,22 +114,31 @@
               # if we have quickbin output, use that as the result
               if [ -f "quickbin-out" ]; then
                 install -m 755 quickbin-out $out/bin/$name
-
               # else if a binary is explicitly passed to mkJanet, use that
               elif [ -n "$bin" ]; then
                 install -m 755 "$JANET_TREE/bin/$bin" $out/bin/$name
-                if isScript "$JANET_TREE/bin/$bin"; then
+              fi
+
+              for file in "$out/bin/"*; do
+                [ -f "$file" ] || continue
+                chmod +x "$file"
+
+                if isScript "$file"; then
                   # If :hardcode-syspath is true, jpm hardcodes our local
                   # syspath which we need to replace with our output path.
                   #
                   # Rather than checking to see if that option is set, we use
                   # --replace which doesn't report an error if no substitution
                   # is made.
-                  substituteInPlace "$out/bin/$name" \
+                  substituteInPlace "$file" \
                     --replace "$JANET_TREE/lib" "$out/lib"
-                  wrapProgram $out/bin/$name --set JANET_PATH "$out/lib"
+                  wrapProgram "$file" --set JANET_PATH "$out/lib" ${runtimePathFlag}
+                ${lib.optionalString (runtimeInputs != []) ''
+                else
+                  wrapProgram "$file" ${runtimePathFlag}
+                ''}
                 fi
-              fi
+              done
             '';
           };
       };

@@ -89,4 +89,77 @@ pkgs: {
       [ "$output" = "binscript-hardcode-syspath" ] || (echo "Unexpected output: $output"; exit 1)
       touch $out
     '';
+
+  quickbin-runtime-dep =
+    let
+      src = pkgs.writeTextDir "main.janet" ''
+        (defn main [& _] (os/execute ["hello"] :p))
+      '';
+      pkg = pkgs.mkJanet {
+        inherit src;
+        name = "quickbin-runtime-dep";
+        quickbin = "main.janet";
+        runtimeInputs = [ pkgs.hello ];
+      };
+    in
+    pkgs.runCommand "quickbin-runtime-dep" { } ''
+      output=$(${pkg}/bin/quickbin-runtime-dep)
+      [ "$output" = "Hello, world!" ] || (echo "Unexpected output: $output"; exit 1)
+      touch $out
+    '';
+
+  executable-runtime-dep =
+    let
+      src = pkgs.symlinkJoin {
+        name = "src";
+        paths = [
+          (pkgs.writeTextDir "project.janet" ''
+            (declare-project :name "myproj")
+            (declare-executable :name "test" :entry "src/main.janet" :install true)
+          '')
+          (pkgs.writeTextDir "src/main.janet" ''
+            (defn main [& _] (os/execute ["hello"] :p))
+          '')
+        ];
+      };
+      pkg = pkgs.mkJanet {
+        inherit src;
+        name = "executable-runtime-dep";
+        bin = "test";
+        runtimeInputs = [ pkgs.hello ];
+      };
+    in
+    pkgs.runCommand "executable-runtime-dep" { } ''
+      output=$(${pkg}/bin/executable-runtime-dep)
+      [ "$output" = "Hello, world!" ] || (echo "Unexpected output: $output"; exit 1)
+      touch $out
+    '';
+
+  binscript-runtime-dep =
+    let
+      src = pkgs.symlinkJoin {
+        name = "src";
+        paths = [
+          (pkgs.writeTextDir "project.janet" ''
+            (declare-project :name "myproj")
+            (declare-binscript :main "src/test")
+          '')
+          (pkgs.writeTextDir "src/test" ''
+            #!/usr/bin/env janet
+            (os/execute ["hello"] :p)
+          '')
+        ];
+      };
+      pkg = pkgs.mkJanet {
+        inherit src;
+        name = "binscript-runtime-dep";
+        bin = "test";
+        runtimeInputs = [ pkgs.hello ];
+      };
+    in
+    pkgs.runCommand "binscript-runtime-dep" { } ''
+      output=$(${pkg}/bin/binscript-runtime-dep)
+      [ "$output" = "Hello, world!" ] || (echo "Unexpected output: $output"; exit 1)
+      touch $out
+    '';
 }
