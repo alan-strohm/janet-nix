@@ -328,4 +328,74 @@ in
       [ "$output" = "extra-sources" ] || (echo "Unexpected output: $output"; exit 1)
       touch $out
     '';
+
+  # Ensure that scripts in dependencies get a wrapped path giving them access
+  # to runtimeInputs.
+  dep-binscript-runtime-inputs =
+    let
+      dep = pkgs.symlinkJoin {
+        name = "dep-src";
+        paths = [
+          (pkgs.writeTextDir "project.janet" ''
+            (declare-project :name "deptool")
+            (declare-binscript :main "src/deptool")
+          '')
+          (pkgs.writeTextDir "src/deptool" ''
+            #!/usr/bin/env janet
+            (os/execute ["hello"] :p)
+          '')
+        ];
+      };
+      pkg = pkgs.mkJanet {
+        name = "main";
+        src = pkgs.writeTextDir "main.janet" ''
+          (defn main [& args] (print "main"))
+        '';
+        quickbin = "main.janet";
+        extraSources = [ dep ];
+        runtimeInputs = [ pkgs.hello ];
+      };
+    in
+    pkgs.runCommand "dep-binscript-runtime-inputs" { } ''
+      output=$(${pkg}/bin/deptool)
+      [ "$output" = "Hello, world!" ] || (echo "Unexpected output from deptool: $output"; exit 1)
+      touch $out
+    '';
+
+  # Ensure that scripts in dependencies get their syspath replaced with the one
+  # from the final package.
+  dep-binscript-hardcode-syspath =
+    let
+      dep = pkgs.symlinkJoin {
+        name = "dep-src";
+        paths = [
+          (pkgs.writeTextDir "project.janet" ''
+            (declare-project :name "deptool")
+            (declare-source :source [ "src/greetlib.janet" ])
+            (declare-binscript :main "src/deptool" :hardcode-syspath true)
+          '')
+          (pkgs.writeTextDir "src/greetlib.janet" ''
+            (defn greet [] "dep-binscript-hardcode-syspath")
+          '')
+          (pkgs.writeTextDir "src/deptool" ''
+            #!/usr/bin/env janet
+            (import greetlib)
+            (defn main [& args] (print (greetlib/greet)))
+          '')
+        ];
+      };
+      pkg = pkgs.mkJanet {
+        name = "main";
+        src = pkgs.writeTextDir "main.janet" ''
+          (defn main [& args] (print "main"))
+        '';
+        quickbin = "main.janet";
+        extraSources = [ dep ];
+      };
+    in
+    pkgs.runCommand "dep-binscript-hardcode-syspath" { } ''
+      output=$(${pkg}/bin/deptool)
+      [ "$output" = "dep-binscript-hardcode-syspath" ] || (echo "Unexpected output from deptool: $output"; exit 1)
+      touch $out
+    '';
 }

@@ -37,7 +37,7 @@
               mkdir -p "$PWD/.pkgs"
 
               if [ -n "${jpmTree}" ]; then
-                cp -r ${jpmTree}/. "$JANET_TREE"
+                cp -rL ${jpmTree}/. "$JANET_TREE"
                 chmod -R u+w "$JANET_TREE"
               fi
 
@@ -66,26 +66,40 @@
                 install -m 755 "$JANET_TREE/bin/$bin" $out/bin/$name
               fi
 
-              for file in "$out/bin/"*; do
-                [ -f "$file" ] || continue
-                chmod +x "$file"
-
-                if isScript "$file"; then
-                  # If :hardcode-syspath is true, jpm hardcodes our local
-                  # syspath which we need to replace with our output path.
-                  #
-                  # Rather than checking to see if that option is set, we use
-                  # --replace which doesn't report an error if no substitution
-                  # is made.
-                  substituteInPlace "$file" \
-                    --replace "$JANET_TREE/lib" "$out/lib"
-                  wrapProgram "$file" --set JANET_PATH "$out/lib" ${runtimePathFlag}
-                ${lib.optionalString (runtimeInputs != []) ''
-                else
-                  wrapProgram "$file" ${runtimePathFlag}
-                ''}
-                fi
-              done
+              ${if jpmTree == "" then ''
+                # We don't yet have the full dependency tree: stamp a
+                # placeholder into any :hardcode-syspath scripts so the
+                # consuming package can patch them to its own $out/lib without
+                # knowing this build's JANET_TREE path.
+                for f in "$out/bin/"*; do
+                  [ -f "$f" ] || continue
+                  if isScript "$f"; then
+                    substituteInPlace "$f" \
+                      --replace "$JANET_TREE/lib" "@syspath@"
+                  fi
+                done
+              '' else ''
+                for file in "$out/bin/"*; do
+                  [ -f "$file" ] || continue
+                  chmod +x "$file"
+                  if isScript "$file"; then
+                    # If :hardcode-syspath is true, jpm hardcodes our local
+                    # syspath which we need to replace with our output path.
+                    #
+                    # Rather than checking to see if that option is set, we use
+                    # --replace which doesn't report an error if no substitution
+                    # is made.
+                    substituteInPlace "$file" \
+                      --replace "@syspath@"       "$out/lib" \
+                      --replace "$JANET_TREE/lib" "$out/lib"
+                    wrapProgram "$file" --set JANET_PATH "$out/lib" ${runtimePathFlag}
+                  ${lib.optionalString (runtimeInputs != []) ''
+                  else
+                    wrapProgram "$file" ${runtimePathFlag}
+                  ''}
+                  fi
+                done
+              ''}
             '';
           };
     in {
